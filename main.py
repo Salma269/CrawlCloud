@@ -42,7 +42,8 @@ def get_local_ip():
 ROLE_MAP = {
     '172.31.80.40': 'master',
     '172.31.80.247': 'crawler',
-    '172.31.21.53': 'indexer'
+    '172.31.21.53': 'indexer',
+    '172.31.30.16': 'client'
 }
 
 comm = MPI.COMM_WORLD
@@ -144,6 +145,14 @@ elif role == 'indexer':
         error_msg = f"[{local_ip}] Indexer failed:\n{traceback.format_exc()}"
         comm.send(error_msg, dest=0, tag=98)
 
+elif role == 'client':
+    try:
+        client_process()
+    except Exception as e:
+        error_msg = f"[{local_ip}] Client failed:\n{traceback.format_exc()}"
+        comm.send(error_msg, dest=0, tag=97)
+
+
 else:
     error_msg = f"[Rank {rank}] Unknown role for IP: {local_ip}"
-    comm.send(error_msg, dest=0, tag=97)
+    comm.send(error_msg, dest=0, tag=96)
