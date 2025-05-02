@@ -106,8 +106,8 @@ class CrawlingSpider(CrawlSpider):
                 )
 
                 self.logger.info(f"Fetched task: URL: {body.get('url')}, Depth: {self.custom_settings['DEPTH_LIMIT']}")
-                
-                comm.send(self.message_id, dest=0, tag=2)
+                self.logger.info(f"Sending {self.message_id} signal to master")
+                self.comm.send(self.message_id, dest=0, tag=2)
                 # Start crawling after receiving the task
                 self.start_crawl()
             else:
