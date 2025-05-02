@@ -159,7 +159,7 @@ def master_process():
                 else:
                     num_keywords -= 1
                     remaining_keywords = remaining_keywords[1:]
-          elif tag == 90:  # URL submission from client
+            elif tag == 90:  # URL submission from client
                 url = message_data["data"]
                 task = {
                     "url": url,
@@ -174,7 +174,7 @@ def master_process():
                     num_tasks[0] += 1
                     logging.info(f"Received new URL from client: {url}")
 
-          elif tag == 91:  # Search query from client
+            elif tag == 91:  # Search query from client
                 keyword = message_data["data"]
                 if indexer_is_available:
                     comm.send(keyword, dest=indexer_rank, tag=10)
@@ -185,11 +185,11 @@ def master_process():
                 else:
                     logging.warning("Indexer busy. Ignoring client search request for now.")
 
-          elif tag == 99:
+            elif tag == 99:
                 logging.info(f"Received URLs from crawler {source}")
                 discovered_urls.extend(message_data)
 
-          elif tag == 999:
+            elif tag == 999:
                 logging.error(f"Crawler {source} reported error: {message_data}")
                 crawler_tasks_assigned[0] -= 1
 
