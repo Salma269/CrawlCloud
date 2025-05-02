@@ -1,106 +1,152 @@
+import re
+import pymysql
 import json
-from queue import Queue
 from collections import defaultdict
-from typing import Dict, List, Set
 import os
+import logging
+import boto3
+from mpi4py import MPI
+from whoosh.index import create_in, open_dir
+from whoosh.fields import Schema, TEXT, ID
+from whoosh.qparser import QueryParser
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - Indexer - %(levelname)s - %(message)s")
 
 class BasicIndexerNode:
-    def __init__(self, use_file_storage: bool = False, index_file: str = "index.json"):
-        """
-        Initialize the indexer node.
+    def __init__(self, index_dir="whoosh_index", use_sql = False):
+        self.index_dir = index_dir
+        self.use_sql = use_sql
 
-        Args:
-            use_file_storage: If True, persist index to disk
-            index_file: File to store/load the index
-        """
-        self.index: Dict[str, Set[str]] = defaultdict(set)  # keyword -> set of URLs
-        self.crawler_queue = Queue()  # Simple queue for incoming crawler data
-        self.use_file_storage = use_file_storage
-        self.index_file = index_file
+        if use_sql:
+            self._init_sql_connection()
+            self._create_table()
 
-        if use_file_storage and os.path.exists(index_file):
-            self.load_index()
+        schema = Schema(url=ID(stored=True, unique=True), content=TEXT(stored=True))
+
+        if not os.path.exists(index_dir):
+            os.mkdir(index_dir)
+            self.index = create_in(index_dir, schema)
+        else:
+            self.index = open_dir(index_dir)
+
+    def _init_sql_connection(self):
+        self.conn = pymysql.connect(
+            host = "database.cgvouae4ojwr.us-east-1.rds.amazonaws.com",
+            port = 3306,
+            user = "admin",
+            password = "database",
+            database = "database12",
+            autocommit = True)
+        self.cursor = self.conn.cursor()
+
+    def _create_table(self):
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS inverted_index2(word VARCHAR(255) PRIMARY KEY, url TEXT)
+        """)
+
+    def insert_sql(self, word, url):
+        try: 
+            self.cursor.execute("SELECT url FROM inverted_index2 WHERE word = %s", (word,))
+            result = self.cursor.fetchone()
+            if result:
+                existing_urls = result[0].split(',')
+                if url not in existing_urls:
+                    existing_urls.append(url)
+                    updated_url_list = ','.join(existing_urls)
+                    self.cursor.execute(
+                        "UPDATE inverted_index2 SET url = %s WHERE word = %s", (updated_url_list, word))
+            else:
+                self.cursor.execute("INSERT INTO inverted_index2 (word,url) VALUES (%s, %s)", (word,url))
+        except Exception as e:
+             logging.error(f"Failed to insert ({word}, {url}) into SQL: {e}")
 
     def ingest_from_crawler(self, url: str, text: str):
-        """
-        Ingest data from a crawler node.
+        writer = self.index.writer()
+        writer.update_document(url=url, content=text)
+        writer.commit()
 
-        Args:
-            url: The URL of the crawled page
-            text: The text content of the page
-        """
-        # Simple tokenization - split by whitespace and remove punctuation
-        words = [word.strip('.,!?()[]{}"\'') for word in text.lower().split()]
+        if self.use_sql:
+            words = re.findall(r'\w+',text.lower())
+            for word in words:
+                self.insert_sql(word,url)
 
-        # Add to index
-        for word in words:
-            if word:  # skip empty strings
-                self.index[word].add(url)
+    def search(self, keyword: str):
+        qp = QueryParser("content", schema=self.index.schema)
+        q = qp.parse(keyword)
 
-        # If using file storage, save after each update
-        if self.use_file_storage:
-            self.save_index()
+        results_list = []
+        with self.index.searcher() as searcher:
+            results = searcher.search(q, limit=10)
+            for r in results:
+                results_list.append(r['url'])
+        return results_list
 
-    def search(self, keyword: str) -> List[str]:
-        """
-        Search for a keyword in the index (exact match).
 
-        Args:
-            keyword: The keyword to search for
+def fetch_from_sqs(queue_url, max_messages=5, wait_time=2):
+    sqs = boto3.client('sqs', region_name='us-east-1')  # Replace with your region
+    response = sqs.receive_message(
+        QueueUrl=queue_url,
+        MaxNumberOfMessages=max_messages,
+        WaitTimeSeconds=wait_time,
+        MessageAttributeNames=['All']
+    )
 
-        Returns:
-            List of URLs containing the keyword
-        """
-        normalized_keyword = keyword.lower()
-        return list(self.index.get(normalized_keyword, set()))
+    messages = response.get('Messages', [])
+    results = []
 
-    def save_index(self):
-        """Save the index to a file."""
-        # Convert sets to lists for JSON serialization
-        serializable_index = {k: list(v) for k, v in self.index.items()}
-        with open(self.index_file, 'w') as f:
-            json.dump(serializable_index, f)
-
-    def load_index(self):
-        """Load the index from a file."""
+    for msg in messages:
         try:
-            with open(self.index_file, 'r') as f:
-                loaded_index = json.load(f)
-            # Convert lists back to sets
-            self.index = defaultdict(set, {k: set(v) for k, v in loaded_index.items()})
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.index = defaultdict(set)
+            msg_attrs = msg.get('MessageAttributes', {})
+            if msg_attrs and 'url' in msg_attrs and 'title' in msg_attrs:
+                url = msg_attrs['url']['StringValue']
+                text = msg_attrs['title']['StringValue']
+            else:
+                # Fallback: parse JSON from body
+                body = json.loads(msg['Body'])
+                url = body.get('url')
+                text = body.get('text')
 
-    def process_crawler_queue(self):
-        """Process all items in the crawler queue."""
-        while not self.crawler_queue.empty():
-            url, text = self.crawler_queue.get()
-            self.ingest_from_crawler(url, text)
-            self.crawler_queue.task_done()
+            if url and text:
+                results.append((url, text))
 
-    def add_to_queue(self, url: str, text: str):
-        """Add crawled data to the processing queue."""
-        self.crawler_queue.put((url, text))
+            # Delete message after processing
+            sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=msg['ReceiptHandle'])
+
+        except Exception as e:
+            logging.warning(f"Failed to process SQS message: {e}")
+    return results
+
+def indexer_process():
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    status = MPI.Status()
+    
+    indexer = BasicIndexerNode(use_sql = True)
+    logging.info(f"Indexer Node (rank {rank}) started.")
+
+    # Set your actual SQS queue URL here
+    SQS_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/696726802797/ScrapeQueue"
+
+    while True:
+        # 1. Poll messages from SQS regularly
+        items = fetch_from_sqs(SQS_QUEUE_URL)
+        for url, text in items:
+            logging.info(f"Ingesting content from {url}")
+            indexer.ingest_from_crawler(url, text)
+
+        # 2. Handle incoming MPI messages
+        if comm.Iprobe(source=0, tag=MPI.ANY_TAG, status=status):
+            tag = status.Get_tag()
+            message = comm.recv(source=0, tag=tag)
+
+            if tag == 10:  # Search query
+                keyword = message
+                logging.info(f"Received search query: {keyword}")
+                results = indexer.search(keyword)
+                comm.send(results, dest=0, tag=11)
+                logging.info(f"Sent results to master: {results}")
 
 
-# Example usage
-if __name__ == "__main__":
-    # Initialize indexer
-    indexer = BasicIndexerNode(use_file_storage=True)
+if __name__ == '__main__':
+    indexer_process()
 
-    # Simulate data coming from crawler nodes
-    crawler_data = [
-        ("http://example.com/page1", "This is a sample page about Python programming."),
-        ("http://example.com/page2", "Programming in Python is fun and easy."),
-        ("http://example.com/page3", "Machine learning with Python is popular."),
-    ]
-
-    # Ingest data (could also use add_to_queue and process_crawler_queue)
-    for url, text in crawler_data:
-        indexer.ingest_from_crawler(url, text)
-
-    # Perform searches
-    print("Results for 'python':", indexer.search("python"))
-    print("Results for 'programming':", indexer.search("programming"))
-    print("Results for 'nonexistent':", indexer.search("nonexistent"))
-    print("Results for 'sample':", indexer.search("sample"))
