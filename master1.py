@@ -3,14 +3,36 @@ import time
 import logging
 import boto3
 import json
+from flask import Flask, request, render_template_string
 from collections import defaultdict
+from threading import Thread
+
+# AWS SQS setup
+sqs = boto3.client('sqs', region_name='us-east-1')
+queue_url = 'https://sqs.us-east-1.amazonaws.com/696726802797/TaskQueueForCrawlers'  
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - Master - %(levelname)s - %(message)s')
 
-# AWS SQS setup
-sqs = boto3.client('sqs', region_name='us-west-2')
-queue_url = 'https://sqs.us-west-2.amazonaws.com/your-account-id/your-queue-name'  # Replace with actual
+app = Flask(__name__)
+
+# Web server setup
+app = Flask(__name__)
+latest_search_result = {}
+
+@app.route("/search", methods=["POST"])
+def search():
+    keyword = request.json.get("keyword")
+    if not keyword:
+        return jsonify({"error": "Missing keyword"}), 400
+
+    indexer_rank = size - 1  # Last rank assumed to be indexer
+    comm.send(keyword, dest=indexer_rank, tag=10)
+    result = comm.recv(source=indexer_rank, tag=11)
+    logging.info(f"Search results for '{keyword}': {result}")
+    return jsonify({"results": result})
+def run_web_server():
+    app.run(host="0.0.0.0", port=5000)
 
 def send_to_queue(message):
     try:
@@ -41,6 +63,9 @@ def master_process():
     indexer_rank = 1 + crawler_nodes
 
     logging.info(f"Crawlers: {active_crawlers}, Indexer: {indexer_rank}")
+# Launch web server in background
+    Thread(target=run_web_server, daemon=True).start()
+    logging.info("Web client started at http://<this-ec2-ip>:5000")
 
     seed_urls = ["http://example.com", "http://example.org"]
     urls_to_crawl = [(url, 0) for url in seed_urls]
@@ -49,21 +74,23 @@ def master_process():
     timeout_seconds = 15
 
     while True:
-        # --- CLIENT INPUT ---
-        try:
-            user_input = input("Enter command (url <url> / search <keyword>): ")
-            if user_input.startswith("url "):
-                url = user_input[4:].strip()
-                urls_to_crawl.append((url, 0))
-            elif user_input.startswith("search "):
-                keyword = user_input[7:].strip()
-                comm.send(keyword, dest=indexer_rank, tag=10)
-                result = comm.recv(source=indexer_rank, tag=11)
-                logging.info(f"Search results for '{keyword}': {result}")
-        except EOFError:
-            break  # Allow clean exit
+        # --- Handle Web Client Input (Search or URL) ---
+        @app.route("/", methods=["GET", "POST"])
+        def index():
+            if request.method == "POST":
+                user_input = request.form["query"]
+                if user_input.startswith("url "):  # Handle URL addition
+                    url = user_input[4:].strip()
+                    urls_to_crawl.append((url, 0))
+                    return render_template_string(open("templates/index.html").read(), results="URL added successfully.")
+                elif user_input.startswith("search "):  # Handle Search query
+                    keyword = user_input[7:].strip()
+                    comm.send(keyword, dest=indexer_rank, tag=10)
+                    result = comm.recv(source=indexer_rank, tag=11)
+                    return render_template_string(open("templates/index.html").read(), results=f"Search results for '{keyword}': {result}")
+            return render_template_string(open("templates/index.html").read(), results=None)
 
-        # --- HANDLE COMPLETED TASKS ---
+        # --- HANDLE COMPLETED TASKS --- 
         while comm.Iprobe(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status):
             source = status.Get_source()
             tag = status.Get_tag()
@@ -83,7 +110,7 @@ def master_process():
             elif tag == 999:
                 logging.error(f"Crawler error from {source}: {data}")
 
-        # --- ASSIGN TASKS ---
+        # --- ASSIGN TASKS --- 
         while urls_to_crawl and len(task_status) < len(active_crawlers):
             url, depth = urls_to_crawl.pop(0)
             crawler = active_crawlers[len(task_status) % len(active_crawlers)]
@@ -98,7 +125,7 @@ def master_process():
             logging.info(f"Assigned task {task_id} to crawler {crawler}: {url}")
             task_id += 1
 
-        # --- TIMEOUT & REQUEUE ---
+        # --- TIMEOUT & REQUEUE --- 
         now = time.time()
         timed_out = [tid for tid, v in task_status.items() if now - v['timestamp'] > timeout_seconds]
         for tid in timed_out:
@@ -110,4 +137,10 @@ def master_process():
         time.sleep(0.5)
 
 if __name__ == '__main__':
+    from threading import Thread
+    # Start Flask app in a separate thread
+    thread = Thread(target=app.run, kwargs={'host': '0.0.0.0', 'port': 5000})
+    thread.start()
+
+    # Start the master process
     master_process()
