@@ -13,7 +13,7 @@ from whoosh.qparser import QueryParser
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - Indexer - %(levelname)s - %(message)s")
 
 class BasicIndexerNode:
-    def __init__(self, index_dir="whoosh_index", use_sql = False):
+    def __init__(self, index_dir="whoosh_index", use_sql=False):
         self.index_dir = index_dir
         self.use_sql = use_sql
 
@@ -27,16 +27,16 @@ class BasicIndexerNode:
             os.mkdir(index_dir)
             self.index = create_in(index_dir, schema)
         else:
-    self.index = open_dir(index_dir)
+            self.index = open_dir(index_dir)
 
     def _init_sql_connection(self):
         self.conn = pymysql.connect(
-            host = "database.cgvouae4ojwr.us-east-1.rds.amazonaws.com",
-            port = 3306,
-            user = "admin",
-            password = "database",
-            database = "database12",
-            autocommit = True)
+            host="database.cgvouae4ojwr.us-east-1.rds.amazonaws.com",
+            port=3306,
+            user="admin",
+            password="database",
+            database="database12",
+            autocommit=True)
         self.cursor = self.conn.cursor()
 
     def _create_table(self):
@@ -55,8 +55,7 @@ class BasicIndexerNode:
                     updated_url_list = ','.join(existing_urls)
                     self.cursor.execute(
                         "UPDATE inverted_index2 SET url = %s WHERE word = %s", (updated_url_list, word))
-
- else:
+            else:
                 self.cursor.execute("INSERT INTO inverted_index2 (word,url) VALUES (%s, %s)", (word,url))
         except Exception as e:
             logging.error(f"Failed to insert ({word}, {url}) into SQL: {e}")
@@ -67,9 +66,9 @@ class BasicIndexerNode:
         writer.commit()
 
         if self.use_sql:
-            words = re.findall(r'\w+',text.lower())
+            words = re.findall(r'\w+', text.lower())
             for word in words:
-                self.insert_sql(word,url)
+                self.insert_sql(word, url)
 
     def search(self, keyword: str):
         qp = QueryParser("content", schema=self.index.schema)
@@ -81,6 +80,7 @@ class BasicIndexerNode:
             for r in results:
                 results_list.append(r['url'])
         return results_list
+
 def fetch_from_sqs(queue_url, max_messages=5, wait_time=2):
     sqs = boto3.client('sqs', region_name='us-east-1')  # Replace with your region
     response = sqs.receive_message(
@@ -101,14 +101,13 @@ def fetch_from_sqs(queue_url, max_messages=5, wait_time=2):
                 title = msg_attrs.get('title', {}).get('StringValue', '')
                 content = msg_attrs['content']['StringValue']
                 text = title + "\n" + content
-
             else:
                 # Fallback: parse JSON from body
                 body = json.loads(msg['Body'])
                 url = body.get('url')
                 text = body.get('text')
-if url and text:
-                results.append((url, text))
+                if url and text:
+                    results.append((url, text))
 
             # Delete message after processing
             sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=msg['ReceiptHandle'])
@@ -122,7 +121,7 @@ def indexer_process():
     rank = comm.Get_rank()
     status = MPI.Status()
 
-    indexer = BasicIndexerNode(use_sql = True)
+    indexer = BasicIndexerNode(use_sql=True)
     logging.info(f"Indexer Node (rank {rank}) started.")
 
     # Set your actual SQS queue URL here
@@ -134,7 +133,7 @@ def indexer_process():
         for url, text in items:
             logging.info(f"Ingesting content from {url}")
             indexer.ingest_from_crawler(url, text)
- # 2. Handle incoming MPI messages
+        # 2. Handle incoming MPI messages
         if comm.Iprobe(source=0, tag=MPI.ANY_TAG, status=status):
             tag = status.Get_tag()
             message = comm.recv(source=0, tag=tag)
@@ -146,7 +145,5 @@ def indexer_process():
                 comm.send(results, dest=0, tag=11)
                 logging.info(f"Sent results to master: {results}")
 
-
 if __name__ == '__main__':
     indexer_process()
-
