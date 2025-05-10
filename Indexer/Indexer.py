@@ -27,7 +27,7 @@ class BasicIndexerNode:
             os.mkdir(index_dir)
             self.index = create_in(index_dir, schema)
         else:
-            self.index = open_dir(index_dir)
+    self.index = open_dir(index_dir)
 
     def _init_sql_connection(self):
         self.conn = pymysql.connect(
@@ -41,11 +41,11 @@ class BasicIndexerNode:
 
     def _create_table(self):
         self.cursor.execute("""
-            CREATE TABLE IF NOT EXISTS inverted_index2(word VARCHAR(255) PRIMARY KEY, url TEXT)
-        """)
+                            CREATE TABLE IF NOT EXISTS inverted_index2(word VARCHAR(255) PRIMARY KEY, url TEXT)
+                            """)
 
     def insert_sql(self, word, url):
-        try: 
+        try:
             self.cursor.execute("SELECT url FROM inverted_index2 WHERE word = %s", (word,))
             result = self.cursor.fetchone()
             if result:
@@ -55,10 +55,11 @@ class BasicIndexerNode:
                     updated_url_list = ','.join(existing_urls)
                     self.cursor.execute(
                         "UPDATE inverted_index2 SET url = %s WHERE word = %s", (updated_url_list, word))
-            else:
+
+ else:
                 self.cursor.execute("INSERT INTO inverted_index2 (word,url) VALUES (%s, %s)", (word,url))
         except Exception as e:
-             logging.error(f"Failed to insert ({word}, {url}) into SQL: {e}")
+            logging.error(f"Failed to insert ({word}, {url}) into SQL: {e}")
 
     def ingest_from_crawler(self, url: str, text: str):
         writer = self.index.writer()
@@ -80,8 +81,6 @@ class BasicIndexerNode:
             for r in results:
                 results_list.append(r['url'])
         return results_list
-
-
 def fetch_from_sqs(queue_url, max_messages=5, wait_time=2):
     sqs = boto3.client('sqs', region_name='us-east-1')  # Replace with your region
     response = sqs.receive_message(
@@ -97,16 +96,18 @@ def fetch_from_sqs(queue_url, max_messages=5, wait_time=2):
     for msg in messages:
         try:
             msg_attrs = msg.get('MessageAttributes', {})
-            if msg_attrs and 'url' in msg_attrs and 'title' in msg_attrs:
+            if msg_attrs and 'url' in msg_attrs and 'content' in msg_attrs:
                 url = msg_attrs['url']['StringValue']
-                text = msg_attrs['title']['StringValue']
+                title = msg_attrs.get('title', {}).get('StringValue', '')
+                content = msg_attrs['content']['StringValue']
+                text = title + "\n" + content
+
             else:
                 # Fallback: parse JSON from body
                 body = json.loads(msg['Body'])
                 url = body.get('url')
                 text = body.get('text')
-
-            if url and text:
+if url and text:
                 results.append((url, text))
 
             # Delete message after processing
@@ -120,7 +121,7 @@ def indexer_process():
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     status = MPI.Status()
-    
+
     indexer = BasicIndexerNode(use_sql = True)
     logging.info(f"Indexer Node (rank {rank}) started.")
 
@@ -133,8 +134,7 @@ def indexer_process():
         for url, text in items:
             logging.info(f"Ingesting content from {url}")
             indexer.ingest_from_crawler(url, text)
-
-        # 2. Handle incoming MPI messages
+ # 2. Handle incoming MPI messages
         if comm.Iprobe(source=0, tag=MPI.ANY_TAG, status=status):
             tag = status.Get_tag()
             message = comm.recv(source=0, tag=tag)
