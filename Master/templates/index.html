@@ -1,155 +1,174 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Crawl Cloud Interface</title>
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 20px;
-      background-color: #f4f7fa;
-      color: #333;
-    }
-
-    .container {
-      display: grid;
-      gap: 20px;
-      grid-template-columns: 1fr 1fr;
-    }
-
-    h1 {
-      grid-column: 1 / -1;
-      text-align: center;
-      color: #2c3e50;
-      margin-bottom: 20px;
-    }
-
-    .section {
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    h2 {
-      color: #2c3e50;
-      margin-bottom: 15px;
-      font-size: 1.5em;
-    }
-
-    form {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-
-    input[type="text"], input[type="number"] {
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 14px;
-      flex: 1;
-      min-width: 200px;
-    }
-
-    input[type="submit"] {
-      padding: 10px 20px;
-      background-color: #3498db;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      transition: background-color 0.2s;
-    }
-
-    input[type="submit"]:hover {
-      background-color: #2980b9;
-    }
-
-    .status-section, .history-section {
-      grid-column: 1 / -1;
-    }
-
-    .results-section {
-      grid-column: 1 / -1;
-    }
-
-    .status-table, .history-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 10px;
-    }
-
-    .status-table th, .history-table th {
-      background: #3498db;
-      color: white;
-      padding: 10px;
-      text-align: left;
-    }
-
-    .status-table td, .history-table td {
-      border: 1px solid #ddd;
-      padding: 10px;
-    }
-
-    pre {
-      background: #f9f9f9;
-      padding: 15px;
-      border-radius: 4px;
-      border: 1px solid #ddd;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-      max-height: 400px;
-      overflow-y: auto;
-    }
-
-    @media (max-width: 768px) {
-      .container {
-        grid-template-columns: 1fr;
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crawl Cloud Interface</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
       }
-    }
-  </style>
-</head>
-<body>
-  <h1>Crawl Cloud</h1>
-  <div class="container">
-    <div class="section crawl-section">
-      <h2>Add URL to Crawl</h2>
-      <form method="POST">
-        <input type="hidden" name="command_type" value="url" />
-        <input type="text" name="url" placeholder="Enter URL (e.g., https://example.com)" required />
-        <input type="text" name="domain" placeholder="Allowed Domain (e.g., example.com)" required />
-        <input type="number" name="depth" placeholder="Crawl Depth (e.g., 1)" min="1" required />
-        <input type="submit" value="Start Crawl" />
-      </form>
-    </div>
 
-    <div class="section search-section">
-      <h2>Search the Index</h2>
-      <form method="POST">
-        <input type="hidden" name="command_type" value="search" />
-        <input type="text" name="query" placeholder="Search keywords..." required />
-        <input type="submit" value="Search" />
-      </form>
-    </div>
+      body {
+        font-family: 'Segoe UI', Arial, sans-serif;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f4f7fa;
+        color: #333;
+      }
 
-    {% if results %}
-      <div class="section results-section">
-        <h2>Search Results</h2>
-        <pre>{{ results }}</pre>
+      .container {
+        display: grid;
+        gap: 20px;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      h1 {
+        grid-column: 1 / -1;
+        text-align: center;
+        color: #2c3e50;
+        margin-bottom: 20px;
+      }
+
+      .section {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
+
+      h2 {
+        color: #2c3e50;
+        margin-bottom: 15px;
+        font-size: 1.5em;
+      }
+
+      form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+
+      input[type="text"], input[type="number"] {
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+        flex: 1;
+        min-width: 200px;
+      }
+
+      input[type="submit"], button {
+        padding: 10px 20px;
+        background-color: #3498db;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.2s;
+      }
+
+      input[type="submit"]:hover, button:hover {
+        background-color: #2980b9;
+      }
+
+      .status-section, .history-section {
+        grid-column: 1 / -1;
+      }
+
+      .results-section {
+        grid-column: 1 / -1;
+      }
+
+      .status-table, .history-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+
+      .status-table th, .history-table th {
+        background: #3498db;
+        color: white;
+        padding: 10px;
+        text-align: left;
+      }
+
+      .status-table td, .history-table td {
+        border: 1px solid #ddd;
+        padding: 10px;
+      }
+
+      pre {
+        background: #f9f9f9;
+        padding: 15px;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+
+      @media (max-width: 768px) {
+        .container {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Crawl Cloud</h1>
+    <div class="container">
+      <div class="section crawl-section">
+        <h2>Add URLs to Crawl</h2>
+        <form method="POST" id="crawl-form">
+          <input type="hidden" name="command_type" value="url">
+          <div id="url-sections">
+            <div class="url-entry">
+              <input type="text" name="url" placeholder="Enter URL (e.g., https://example.com)" required>
+              <input type="text" name="domain" placeholder="Allowed Domain (e.g., example.com)" required>
+              <input type="number" name="depth" placeholder="Crawl Depth" min="1" required>
+            </div>
+          </div>
+          <button type="button" onclick="addSection()">Add Another URL</button>
+          <input type="submit" value="Start Crawl">
+        </form>
       </div>
-    {% endif %}
-  </div>
-</body>
+
+      <div class="section search-section">
+        <h2>Search the Index</h2>
+        <form method="POST">
+          <input type="hidden" name="command_type" value="search">
+          <input type="text" name="query" placeholder="Search keywords..." required>
+          <input type="submit" value="Search">
+        </form>
+      </div>
+
+      {% if results %}
+        <div class="section results-section">
+          <h2>Search Results</h2>
+          <pre>{{ results }}</pre>
+        </div>
+      {% endif %}
+    </div>
+
+    <script>
+      function addSection() {
+        const container = document.getElementById("url-sections");
+        const entry = document.createElement("div");
+        entry.className = "url-entry";
+        entry.innerHTML = `
+          <input type="text" name="url" placeholder="Enter URL (e.g., https://example.com)" required>
+          <input type="text" name="domain" placeholder="Allowed Domain (e.g., example.com)" required>
+          <input type="number" name="depth" placeholder="Crawl Depth" min="1" required>
+        `;
+        container.appendChild(entry);
+      }
+    </script>
+  </body>
 </html>
