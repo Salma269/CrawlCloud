@@ -92,34 +92,9 @@ def fetch_from_sqs(queue_url, max_messages=5, wait_time=2):
     response = sqs.receive_message(
         QueueUrl=queue_url,
         MaxNumberOfMessages=max_messages,
-        WaitTimeSeconds=wait_time,
-        MessageAttributeNames=['All']
+        WaitTimeSeconds=wait_time
     )
-
-    messages = response.get('Messages', [])
-    results = []
-
-    for msg in messages:
-        try:
-            msg_attrs = msg.get('MessageAttributes', {})
-            if msg_attrs and 'url' in msg_attrs and 'content' in msg_attrs:
-                url = msg_attrs['url']['StringValue']
-                title = msg_attrs.get('title', {}).get('StringValue', '')
-                content = msg_attrs['content']['StringValue']
-                text = title + "\n" + content
-            else:
-                body = json.loads(msg['Body'])
-                url = body.get('url')
-                text = body.get('text')
-
-            if url and text:
-                results.append((url, text))
-
-            sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=msg['ReceiptHandle'])
-
-        except Exception as e:
-            logging.warning(f"Failed to process SQS message: {e}")
-    return results
+    return response.get('Messages', [])
 
 def indexer_process():
     comm = MPI.COMM_WORLD
@@ -128,14 +103,27 @@ def indexer_process():
 
     indexer = BasicIndexerNode(use_sql=True)
     logging.info(f"Indexer Node (rank {rank}) started.")
+
     SQS_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/696726802797/ScrapeQueue"
 
     while True:
         # 1. Poll messages from SQS
         items = fetch_from_sqs(SQS_QUEUE_URL)
-        for url, text in items:
-            logging.info(f"Ingesting content from {url}")
-            indexer.ingest_from_crawler(url, text)
+        for item in items:
+            try:
+                message_body = json.loads(item['Body'])
+                url = message_body.get('url')
+                text = message_body.get('text')
+                if url and text:
+                    logging.info(f"Ingesting content from {url}")
+                    indexer.ingest_from_crawler(url, text)
+                    # Delete message from queue after processing
+                    sqs.delete_message(
+                        QueueUrl=SQS_QUEUE_URL,
+                        ReceiptHandle=item['ReceiptHandle']
+                    )
+            except Exception as e:
+                logging.error(f"Error processing SQS message: {e}")
 
         # 2. Handle incoming MPI messages
         if comm.Iprobe(source=0, tag=MPI.ANY_TAG, status=status):
@@ -154,6 +142,7 @@ def indexer_process():
                     results = indexer.search(keyword)
                     comm.send(results, dest=source, tag=11)
                     logging.info(f"Sent search results to master: {results}")
+
             except Exception as e:
                 logging.error(f"Error during MPI message handling: {e}")
 
