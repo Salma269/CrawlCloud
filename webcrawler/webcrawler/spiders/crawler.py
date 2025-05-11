@@ -1,4 +1,5 @@
 import boto3
+import pymysql
 from scrapy.spiders import CrawlSpider, Rule
 from scrapy.linkextractors import LinkExtractor
 from scrapy import signals
@@ -11,23 +12,9 @@ import threading
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - Crawler - %(levelname)s - %(message)s")
 
-def ping_listener(comm, logger):
-    status = MPI.Status()
-    while not stop_event.is_set():
-        if comm.iprobe(source=0, tag=100, status=status):
-            message = comm.recv(source=0, tag=100)
-            if message == "ping":
-                comm.send("pong", dest=0, tag=101)
-                logger.info("SENDING PONG.")
-        else:
-            logger.info("FDS")
-        time.sleep(0.1)  # prevent busy waiting
-
-stop_event = threading.Event()
-
 class CrawlingSpider(CrawlSpider):
     name = "mycrawler"
-    allowed_domains = []  # Initially empty, will be set dynamically
+    allowed_domains = []
 
     custom_settings = {
         'ROBOTSTXT_OBEY': True,
@@ -38,47 +25,45 @@ class CrawlingSpider(CrawlSpider):
     input_queue_url = 'https://sqs.us-east-1.amazonaws.com/696726802797/TaskQueueForCrawlers'
 
     rules = (
-        Rule(LinkExtractor(), callback="parse_item", follow=False),
+        Rule(LinkExtractor(), callback="parse_item", follow=True),
     )
-
 
     def __init__(self, *args, **kwargs):
         super(CrawlingSpider, self).__init__(*args, **kwargs)
 
-        # MPI setup for communication between master and crawler (worker)
+        self.db_conn = pymysql.connect(
+            host="database.cgvouae4ojwr.us-east-1.rds.amazonaws.com",
+            port=3306,
+            user="admin",
+            password="database",
+            database="database12",
+            autocommit=True)
+        self.db_cursor = self.db_conn.cursor()
+
+        self.db_cursor.execute("""CREATE TABLE IF NOT EXISTS crawled_pages(
+                                  id INT AUTO_INCREMENT PRIMARY KEY,
+                                  url TEXT,
+                                  title TEXT,
+                                  html MEDIUMTEXT)""")
+
         self.comm = mpi4py.MPI.COMM_WORLD
         self.rank = self.comm.Get_rank()
         self.size = self.comm.Get_size()
 
-        # Track already sent or followed URLs
         self.exported_urls = set()
         self.urls_parsed = 0
         self.sent_urls = 0
         self.message_id = ""
         self.logger.info("Received 'start' signal. Proceeding with task fetching.")
-        #self.ping_thread = threading.Thread(target=ping_listener, args=(self.comm, self.logger))
-        #self.ping_thread.start()
+       
         self.fetch_initial_task()
-
-
-        #self.wait_for_start_signal()
-
-    
-    def wait_for_start_signal(self):
-        self.logger.info(f"Crawler {self.rank} waiting for 'start' signal from master...")
-        while True:
-            message = self.comm.recv(source=0, tag=1)  # Master sends "start" signal
-            if message == "start":
-                self.logger.info("Received 'start' signal. Proceeding with task fetching.")
-                self.fetch_initial_task()
-                break
 
     def fetch_initial_task(self):
         try:
             response = self.sqs.receive_message(
                 QueueUrl=self.input_queue_url,
                 MaxNumberOfMessages=1,
-                WaitTimeSeconds=20  # Long poll for 20 seconds
+                WaitTimeSeconds=20
             )
 
             if 'Messages' in response:
@@ -87,18 +72,11 @@ class CrawlingSpider(CrawlSpider):
 
                 self.message_id = message['MessageId']
 
-                # Dynamically set the start URLs, allowed domains, and other settings
                 self.start_urls = [body.get('url')]
                 self.allowed_domains = body.get('allowed_domains', [])
-                #self.start_urls = ["http://books.toscrape.com/"]
-                #self.allowed_domains = ["toscrape.com"]
-                self.custom_settings['DEPTH_LIMIT'] = body.get('depth', 0)  # Set depth limit
-                self.custom_settings['DOWNLOAD_DELAY'] = body.get('delay', 1.0)  # Set download delay
+                self.custom_settings['DEPTH_LIMIT'] = body.get('depth', 0)
+                self.custom_settings['DOWNLOAD_DELAY'] = body.get('delay', 1.0)
 
-                #self.custom_settings['DEPTH_LIMIT'] = 1
-                #self.custom_settings['DOWNLOAD_DELAY'] = 1.0
-
-                # Delete the message from the queue after processing
                 receipt_handle = message['ReceiptHandle']
                 self.sqs.delete_message(
                     QueueUrl=self.input_queue_url,
@@ -108,12 +86,11 @@ class CrawlingSpider(CrawlSpider):
                 self.logger.info(f"Fetched task: URL: {body.get('url')}, Depth: {self.custom_settings['DEPTH_LIMIT']}")
                 self.logger.info(f"Sending {self.message_id} signal to master")
                 self.comm.send(self.message_id, dest=0, tag=2)
-                # Start crawling after receiving the task
+                
                 self.start_crawl()
             else:
                 self.logger.info("No messages available in the input queue.")
                 
-
         except Exception as e:
             self.logger.error(f"Error fetching task from input queue: {e}")
 
@@ -133,54 +110,50 @@ class CrawlingSpider(CrawlSpider):
         #        self.logger.info("NO PING RECIEVEDDDD")
         #except Exception as e:
         #    self.logger.info("NO PING RECIEVEDDDD")
-        #   pass
-        
-        #while True:
         #    pass
 
         self.logger.info(f"Processing page: {response.url}")
         self.urls_parsed += 1
-        # Step 1: Extract all links
+        
         extractor = LinkExtractor()
         links = extractor.extract_links(response)
 
-        # Step 2: Keep the first link, store the rest
-        other_links = []
-        if links:
-            first_link = links[0].url
-            other_links = [link.url for link in links[1:]]
-        else:
-            first_link = None
+        #other_links = []
+        #if links:
+        #    first_link = links[0].url
+        #    other_links = [link.url for link in links[1:]]
+        #else:
+        #    first_link = None
 
-        # Step 3: Prevent crawling of other links by ignoring them
-        for url in other_links:
-            self.exported_urls.add(url)
-
-        # Step 4: Process and send scraped data to SQS
         self.process_and_send_to_sqs(response)
 
-        # Step 5: Send the list of other links to the master (rank 0)
-        if other_links:
-            self.logger.info(f"Sending {len(other_links)} URLs to master")
-            self.comm.send(other_links, dest=0, tag=99)
-            self.sent_urls += len(other_links)
-
-        # Step 6: Follow the first link if it exists and hasn't been exported
-        if first_link and first_link not in self.exported_urls:
-            self.exported_urls.add(first_link)
-            yield response.follow(first_link, callback=self.parse_item)
-
+        if links:
+            self.logger.info(f"Sending {len(links)} URLs to master")
+            self.comm.send(links, dest=0, tag=99)
+            self.sent_urls += len(links)
+        
+        #if first_link and first_link not in self.exported_urls:
+        #    self.exported_urls.add(first_link)
+        #    yield response.follow(first_link, callback=self.parse_item)
 
     def process_and_send_to_sqs(self, response):
-        """Scrape the page, prepare data, and send it to SQS."""
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # Example of extracting data using BeautifulSoup
         title_tag = soup.find('h1')
         title = title_tag.get_text(strip=True) if title_tag else 'No title'
 
-        # Prepare the message to be sent to SQS
-        message_body = response.text  # Entire HTML page as the body of the message
+        html_content = response.text
+
+        try:
+            self.db_cursor.execute(
+                "INSERT INTO crawled_pages (url, title, html) VALUES (%s, %s, %s)",
+                (response.url, title, html_content)
+            )
+            self.logger.info(f"Inserted page into SQL: {response.url}")
+        except Exception as e:
+            self.logger.error(f"Error inserting into SQL: {e}")
+
+        message_body = response.text  # Entire page as body of the message
         message_attributes = {
             'url': {
                 'DataType': 'String',
@@ -189,19 +162,22 @@ class CrawlingSpider(CrawlSpider):
             'title': {
                 'DataType': 'String',
                 'StringValue': title
+            },
+            'content': {
+                'DataType': 'String',
+                'StringValue': html_content[:1000]
             }
         }
 
-#        try:
-#            # Send the message to SQS queue
-#            response = self.sqs.send_message(
-#                QueueUrl=self.queue_url,
-#                MessageBody=message_body,
-#                MessageAttributes=message_attributes
-#            )
-#            self.logger.info(f"Sent message to SQS, Message ID: {response['MessageId']}")
-#        except Exception as e:
-#            self.logger.error(f"Error sending message to SQS: {e}")
+        try:
+            response_sqs = self.sqs.send_message(
+                QueueUrl=self.queue_url,
+                MessageBody=html_content,
+                MessageAttributes=message_attributes
+            )
+            self.logger.info(f"Sent message to SQS, Message ID: {response_sqs['MessageId']}")
+        except Exception as e:
+            self.logger.error(f"Error sending message to SQS: {e}")
 
     @classmethod
     def from_crawler(cls, crawler, *args, **kwargs):
@@ -221,7 +197,3 @@ class CrawlingSpider(CrawlSpider):
         #self.ping_thread.join()
         self.comm.send(result, dest=0, tag=1)  # Send to master (rank 0) with tag 2
         self.logger.info(f"Spider closed after parsing {self.urls_parsed} and URLs and sending {self.sent_urls} URLs. Sending DONE signal to master.")
-        
-        
-
-
