@@ -63,10 +63,23 @@ def index():
                 "delay": 1.0,
                 "depth": depth
             }
+            task2 = {
+                "url": "http://example.org",
+                "allowed_domains": ["example.org"],
+                "obey_robots": True,
+                "delay": 1.0,
+                "depth": 1
+            }
             message_id = send_to_queue(task)
+            message_id2 = send_to_queue(task2)
             if message_id:
                 task_dict[message_id] = task
                 num_tasks[0] += 1
+
+            if message_id2:
+                task_dict[message_id2] = task2
+                num_tasks[0] += 1
+
             return render_template_string(open("templates/index.html").read(), results="URL task added successfully.")
         elif command_type == "search":
             keyword = request.form["query"].strip()
@@ -146,22 +159,22 @@ def master_process():
     ping_thread.start()
 
     while True:
-        for crawler_rank in active_crawlers:
-            if num_tasks[0] > 0:
-                comm.send("start", dest=crawler_rank, tag=42)
-                message_id, task = next(((tid, t) for tid, t in task_dict.items() if tid != "def"), (None, None))
-                if message_id:
-                    comm.send(task, dest=crawler_rank, tag=2)
-                    crawler_tasks[crawler_rank] = message_id
-                    del task_dict[message_id]
-                    num_tasks[0] -= 1
-                    crawler_tasks_assigned[0] += 1
-                    active_crawlers.remove(crawler_rank)
-                    logging.info(f"Sent task to crawler {crawler_rank}")
-
         while comm.iprobe(source=MPI.ANY_SOURCE, tag=MPI.ANY_TAG, status=status):
             source = status.Get_source()
             tag = status.Get_tag()
+
+            for crawler_rank in active_crawlers:
+                if num_tasks[0] > 0:
+                    comm.send("start", dest=crawler_rank, tag=42)
+                    message_id, task = next(((tid, t) for tid, t in task_dict.items() if tid != "def"), (None, None))
+                    if message_id:
+                        comm.send(task, dest=crawler_rank, tag=2)
+                        crawler_tasks[crawler_rank] = message_id
+                        del task_dict[message_id]
+                        num_tasks[0] -= 1
+                        crawler_tasks_assigned[0] += 1
+                        active_crawlers.remove(crawler_rank)
+                        logging.info(f"Sent task to crawler {crawler_rank}")
 
             if tag != 101:
                 message = comm.recv(source=source, tag=tag)
