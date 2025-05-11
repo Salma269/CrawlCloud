@@ -2,7 +2,7 @@ import subprocess
 
 INPUT_HOSTFILE = "nodes.txt"
 OUTPUT_HOSTFILE = "reachable_hosts.txt"
-SSH_USER = "ubuntu"  # or your actual username on the remote machines
+SSH_USER = "ubuntu"  
 
 def is_ssh_reachable(ip):
     try:
