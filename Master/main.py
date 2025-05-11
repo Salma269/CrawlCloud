@@ -22,8 +22,10 @@ def get_local_ip():
 ROLE_MAP = {
     '172.31.80.40': 'master',
     '172.31.80.247': 'crawler',
+    '172.31.86.107': 'crawler',
     '172.31.21.53': 'indexer'
 }
+
 # Initialize MPI
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -37,28 +39,16 @@ logging.info(f"[Rank {rank}] Local IP: {local_ip}, Role: {role}")
 print(f"[Rank {rank}] Detected IP: {local_ip} | Role from map: {ROLE_MAP.get(local_ip, 'unknown')}")
 
 # Master process
-if rank == 0:
+if role == 'master':
     print(f"[Rank {rank}] Running master process...")
     try:
-        from master1 import master_process
+        from masterscript import master_process
         master_process()
         print("[Master] Finished master_process")
     except Exception as e:
         error_msg = f"[{local_ip}] Master failed:\n{traceback.format_exc()}"
         logging.error(error_msg)
         comm.send(error_msg, dest=0, tag=97)
-elif role == 'client':
-    print(f"[Rank {rank}] Client node starting...")
-    try:
- from client_gui import run_client_gui
-        logging.info("Starting client GUI...")
-        run_client_gui()
-        logging.info("Client GUI terminated.")
-        comm.send(f"[{local_ip}] Client finished successfully.", dest=0, tag=13)
-    except Exception as e:
-        error_msg = f"[{local_ip}] Client failed:\n{traceback.format_exc()}"
-        logging.error(error_msg)
-        comm.send(error_msg, dest=0, tag=98)
 
 # Indexer node
 elif role == 'indexer':
