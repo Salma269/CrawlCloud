@@ -1,61 +1,57 @@
-# Crawl Cloud
+# Crawl Cloud  
 A Cloud-Based Web Crawler
 
-This project is a distributed web crawler and search engine built on AWS. Each node in the system runs on a separate AWS EC2 instance. The system includes a web-based interface for starting crawls and performing keyword searches.
+This project is a distributed web crawler and search engine built on AWS. Each node in the system runs on a separate AWS EC2 instance. The system includes a user-friendly web interface for starting crawl jobs and performing keyword searches.
+
+---
 
 ## How to Start the System
 
-1. **Launch the System:**
+1. **Launch the System**
 
-   Run the following command in the master node to start all nodes and the web client:
+   Run the following command on the master node to initialize all components and the web interface:
 
    ```bash
    python3 launcher.py
    ```
 
    This will:
-   - Initialize the master, crawler, and indexer nodes.
-   - Launch the web-based client interface.
+   - Start the master, crawler, and indexer nodes.
+   - Launch the web client on port 5000 (e.g., `http://<public-server-ip>:5000`).
+
+---
 
 ## Using the Web Interface
 
-Once the system is running, open the web interface in your browser. You can perform two main actions from this interface:
+Once the system is up, open the client interface in your browser. The dashboard provides two main functions:
 
-### 1. Start a Web Crawl
+### 1. Add URL to Crawl
 
-To crawl a new website:
+To initiate a crawl:
 
-- In the input box, type:
+- Enter the full URL in the **Enter URL** field (e.g., `https://example.com`).
+- Enter the **Allowed Domain** to restrict the crawler scope (e.g., `example.com`).
+- Set the desired **Crawl Depth** (e.g., `1`).
+- Click the **Start Crawl** button.
 
-  ```
-  url http://example.com
-  ```
+A message like this will confirm the task was added:
 
-- Click the **Enter Command** button.
+```
+URL task added successfully.
+```
 
-- A message will appear:
-  ```
-  The URL sent successfully.
-  ```
+### 2. Search the Index
 
-This command sends the URL to the crawler system for processing and indexing.
+To search the indexed content:
 
-### 2. Search for a Keyword
+- Enter a keyword or phrase in the **Search the Index** field.
+- Click the **Search** button.
 
-To search for a keyword in the crawled data:
+Matching results from previously crawled data will be displayed below.
 
-- In the input box, type:
-
-  ```
-  search your_keyword
-  ```
-
-- Click the **Enter Command** button.
-
-- The interface will display the search results retrieved from the indexer.
-
+---
 
 ## Notes
 
-- Ensure your AWS credentials and resources (EC2, SQS, RDS) are properly configured before launching.
-
+- Ensure your AWS credentials and services (EC2, SQS, RDS) are correctly set up before launching the system.
+- The system is accessible via a browser on the server IP and port `5000`.
