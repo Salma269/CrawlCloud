@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import signal
+from flask import Flask, request, render_template
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - Master - %(levelname)s - %(message)s')
 
@@ -52,41 +53,48 @@ def send_to_queue(message):
 def index():
     if request.method == "POST":
         command_type = request.form["command_type"]
+
         if command_type == "url":
-            url = request.form["url"].strip()
-            domain = request.form["domain"].strip()
-            depth = int(request.form["depth"])
-            task = {
-                "url": url,
-                "allowed_domains": [domain],
-                "obey_robots": True,
-                "delay": 1.0,
-                "depth": depth
-            }
-            task2 = {
-                "url": "http://example.org",
-                "allowed_domains": ["example.org"],
-                "obey_robots": True,
-                "delay": 1.0,
-                "depth": 1
-            }
-            message_id = send_to_queue(task)
-            message_id2 = send_to_queue(task2)
-            if message_id:
-                task_dict[message_id] = task
-                num_tasks[0] += 1
+            urls = request.form.getlist("url")
+            domains = request.form.getlist("domain")
+            depths = request.form.getlist("depth")
+            success_count = 0
 
-            if message_id2:
-                task_dict[message_id2] = task2
-                num_tasks[0] += 1
+            for url, domain, depth in zip(urls, domains, depths):
+                url = url.strip()
+                domain = domain.strip()
+                try:
+                    depth = int(depth)
+                except ValueError:
+                    continue
 
-            return render_template_string(open("templates/index.html").read(), results="URL task added successfully.")
+                if not url or not domain:
+                    continue
+
+                task = {
+                    "url": url,
+                    "allowed_domains": [domain],
+                    "obey_robots": True,
+                    "delay": 1.0,
+                    "depth": depth
+                }
+
+                message_id = send_to_queue(task)
+                if message_id:
+                    task_dict[message_id] = task
+                    num_tasks[0] += 1
+                    success_count += 1
+
+            msg = f"Successfully added {success_count} task(s)." if success_count else "No valid tasks submitted."
+            return render_template("index.html", results=msg)
+
         elif command_type == "search":
             keyword = request.form["query"].strip()
             comm.send(keyword, dest=indexer_rank, tag=10)
             result = comm.recv(source=indexer_rank, tag=11)
-            return render_template_string(open("templates/index.html").read(), results=f"Search results for '{keyword}': {result}")
-    return render_template_string(open("templates/index.html").read(), results=None)
+            return render_template("index.html", results=f"Search results for '{keyword}': {result}")
+
+    return render_template("index.html", results=None)
 
 def start_flask_server():
     app.run(host='0.0.0.0', port=5000, debug=False)
