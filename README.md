@@ -6,8 +6,28 @@ This project is a distributed web crawler and search engine built on AWS. Each n
 ---
 
 ## How to Start the System
+1. **Install Dependencies**
 
-1. **Launch the System**
+   Before running the system, install all required dependencies:
+   - in the master
+   ```bash
+   sudo apt update
+   sudo apt install -y python3 python3-pip mpi4
+   ```
+   - in the crawler
+   ```bash
+   pip3 install scrapy beautifulsoup4
+   sudo apt install -y mysql-client
+   ```
+
+   - in the indexer
+   ```bash
+   pip3 install whoosh
+   sudo apt install -y mysql-client
+   ```
+
+
+2. **Launch the System**
 
    Run the following command on the master node to initialize all components and the web interface:
 
@@ -33,6 +53,7 @@ To initiate a crawl:
 - Enter the **Allowed Domain** to restrict the crawler scope (e.g., `example.com`).
 - Set the desired **Crawl Depth** (e.g., `1`).
 - Click the **Start Crawl** button.
+- To crawl an additional website, use the **Add Another URL** button and repeat the previous steps
 
 A message like this will confirm the task was added:
 
